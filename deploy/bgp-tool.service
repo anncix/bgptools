@@ -15,6 +15,7 @@ ExecStart=/opt/bgp-tool/venv/bin/gunicorn -w 1 --threads 4 -b 127.0.0.1:8421 bac
 Environment="BGP_TOOL_SITE_NAME=DN42 BGP Looking Glass"
 Environment="BGP_TOOL_NODE_NAME=node1"
 Environment="BGP_TOOL_NODE_ASN=4242420001"
+Environment="BGP_TOOL_MY_ASN=4242420001"
 Environment="BGP_TOOL_BIRD_SOCKET=/run/bird/bird.ctl"
 Environment="BGP_TOOL_BIRD_RESTRICT=true"
 # 公网暴露务必设置 API Key

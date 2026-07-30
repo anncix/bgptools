@@ -37,9 +37,27 @@ echo "[5/7] 安装 systemd 服务..."
 cp "${INSTALL_DIR}/deploy/bgp-tool.service" /etc/systemd/system/
 systemctl daemon-reload
 
-echo "[6/7] 配置日志目录..."
+echo "[6/7] 配置日志目录与 ROA 自动更新..."
 mkdir -p /var/log/bird
 chown bird:bird /var/log/bird 2>/dev/null || true
+
+# 创建 ROA 目录并配置自动更新
+mkdir -p /etc/bird/roa
+chown bird:bird /etc/bird/roa 2>/dev/null || true
+
+# 首次下载 ROA 数据
+echo "  首次下载 DN42 ROA 数据..."
+curl -sfSLR -o /etc/bird/roa/dn42_roa_bird2_4.conf \
+    https://dn42.burble.com/roa/dn42_roa_bird2_4.conf 2>/dev/null || echo "  [警告] ROA v4 下载失败，可稍后手动执行"
+curl -sfSLR -o /etc/bird/roa/dn42_roa_bird2_6.conf \
+    https://dn42.burble.com/roa/dn42_roa_bird2_6.conf 2>/dev/null || echo "  [警告] ROA v6 下载失败，可稍后手动执行"
+
+# 配置 cron 自动更新 ROA（每 15 分钟）
+CRON_LINE='*/15 * * * * curl -sfSLR -o /etc/bird/roa/dn42_roa_bird2_4.conf -z /etc/bird/roa/dn42_roa_bird2_4.conf https://dn42.burble.com/roa/dn42_roa_bird2_4.conf && curl -sfSLR -o /etc/bird/roa/dn42_roa_bird2_6.conf -z /etc/bird/roa/dn42_roa_bird2_6.conf https://dn42.burble.com/roa/dn42_roa_bird2_6.conf && birdc configure >/dev/null 2>&1'
+if ! crontab -l 2>/dev/null | grep -q "dn42_roa_bird2"; then
+    (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    echo "  已配置 ROA 自动更新 cron 任务"
+fi
 
 echo "[7/7] 完成！"
 cat <<EOF

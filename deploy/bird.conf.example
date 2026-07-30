@@ -10,9 +10,10 @@ router id 172.20.0.1;
 
 # ---------- ROA 表 ----------
 roa4 table dn42_roa;
-roa6 table dn42_roa6;
+roa6 table dn42_roa;
 
 # 引入 ROA 数据（由 systemd timer / cron 定时下载后 include）
+# 文件由 deploy/setup.sh 自动下载到 /etc/bird/roa/
 include "/etc/bird/roa/dn42_roa_bird2_4.conf";
 include "/etc/bird/roa/dn42_roa_bird2_6.conf";
 
@@ -49,7 +50,7 @@ template bgp dn42_peer {
     };
     ipv6 {
         import filter {
-            if (roa_check(dn42_roa6, net, bgp_path.last) != ROA_VALID) then
+            if (roa_check(dn42_roa, net, bgp_path.last) != ROA_VALID) then
                 reject;
             accept;
         };
