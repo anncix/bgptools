@@ -20,6 +20,17 @@ def classify(query: str) -> dict:
     if not q:
         return {"type": "unknown", "redirect": "", "label": ""}
 
+    # 0) 两个 ASN（空格或逗号分隔）→ AS Path 双向搜索
+    parts = re.split(r'[\s,]+', q)
+    parts = [p for p in parts if p]
+    if len(parts) == 2 and all(re.match(r"^(?:as)?\d{1,10}$", p, re.IGNORECASE) for p in parts):
+        a1 = re.match(r"(?:as)?(\d+)", parts[0], re.IGNORECASE).group(1)
+        a2 = re.match(r"(?:as)?(\d+)", parts[1], re.IGNORECASE).group(1)
+        # 相同 ASN → 跳转单 ASN 页（而非 AS Path 对搜索）
+        if a1 == a2:
+            return {"type": "asn", "redirect": f"/as/{a1}", "label": f"AS{a1}"}
+        return {"type": "as_path", "redirect": f"/as-path?q={a1},{a2}", "label": f"AS{a1} → AS{a2}"}
+
     # 1) MAC 地址
     if re.match(r"^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$", q):
         return {"type": "mac", "redirect": f"/mac/{q}", "label": q}

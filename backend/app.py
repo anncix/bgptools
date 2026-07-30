@@ -226,10 +226,7 @@ def api_roa(prefix):
         return ok(data)
     except bird_mod.BirdError as e:
         if config.DEMO_MODE:
-            hits = demo.route_lookup_raw(prefix)
-            raw = demo.routes_raw(hits) if hits else "% Network not in table"
-            return ok({"raw": raw, "parsed": bird_mod.parse_routes(raw),
-                       "prefix": prefix, "reachable": bool(hits)})
+            return ok(bird_mod.demo_routes(prefix))
         return ok({"error": str(e)})
 
 
@@ -281,6 +278,304 @@ def api_prefix_view(prefix):
     if "error" in data:
         return jsonify(data), 400
     return ok(data)
+
+
+@app.get("/api/as-path/search")
+def api_as_path_search():
+    """全网 AS Path 搜索。
+
+    参数 q 支持两种形式：
+    - 单个 ASN（如 "4242421234" 或 "AS4242421234"）：返回该 ASN 的完整 AS Path 图
+    - 两个 ASN（如 "4242421234 4242422601"）：返回两个 ASN 之间的可达路径
+    """
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "缺少查询参数 q"}), 400
+    if config.DEMO_MODE:
+        return ok(demo.search_as_paths(query))
+    # 真实模式：从 birdc 路由表聚合 AS Path
+    try:
+        routes = bird_mod.bird.routes(all_details=True)
+        parsed = routes.get("parsed", {}) if isinstance(routes, dict) else {}
+        route_list = parsed.get("routes", []) if isinstance(parsed, dict) else []
+        if not route_list:
+            return ok({"error": "当前路由表为空，无法分析 AS Path"})
+        return ok(_search_as_paths_real(query, route_list))
+    except bird_mod.BirdError as e:
+        return ok({"error": str(e)})
+    except Exception as e:
+        return ok({"error": f"AS Path 搜索失败: {e}"})
+
+
+def _parse_real_as_path(route_item: dict) -> list:
+    """从 BIRD 解析的路由条目中提取 AS Path 列表。
+
+    BIRD 输出的 as_info 格式为 "AS4242422601 AS4242420666 i"，
+    需要提取所有 AS 号（去掉 AS 前缀）。
+    """
+    import re
+    raw = route_item.get("as_info") or route_item.get("as_path") or ""
+    if isinstance(raw, list):
+        return [str(a) for a in raw]
+    # 从 "AS4242422601 AS4242420666 i" 中提取所有 AS 号
+    return re.findall(r'AS(\d+)', raw)
+
+
+def _search_as_paths_real(query: str, route_list: list) -> dict:
+    """真实模式下的 AS Path 搜索，结构与 demo.search_as_paths 一致。"""
+    import re
+    asns = re.findall(r'(?:AS)?(\d{1,10})', query, re.IGNORECASE)
+    if not asns:
+        return {"error": "无法识别 ASN，请输入如 AS4242421234 或 4242421234 4242422601"}
+
+    my_asn = str(config.MY_ASN) if hasattr(config, 'MY_ASN') else ""
+
+    # 构建 path -> [prefixes] 的映射，同时收集节点信息
+    path_prefix_map = {}
+    name_map = {}
+    node_prefix_count = {}  # ASN -> 起源前缀数
+
+    for r in route_list:
+        path = _parse_real_as_path(r)
+        if not path:
+            continue
+        prefix = r.get("prefix", "")
+        key = tuple(path)
+        path_prefix_map.setdefault(key, []).append(prefix)
+        for a in path:
+            if a not in name_map:
+                name_map[a] = f"AS{a}"
+        # 起源前缀（path 最后一个 AS）
+        origin = path[-1]
+        node_prefix_count[origin] = node_prefix_count.get(origin, 0) + 1
+
+    # 上游/下游/对等方计算（与 demo 逻辑一致）
+    def _upstreams(asn):
+        ups = set()
+        for path in path_prefix_map:
+            if asn in path:
+                i = path.index(asn)
+                if i > 0:
+                    ups.add(path[i - 1])
+        return sorted(ups)
+
+    def _downstreams(asn):
+        downs = set()
+        for path in path_prefix_map:
+            if asn in path:
+                i = len(path) - 1 - path[::-1].index(asn)
+                if i < len(path) - 1:
+                    downs.add(path[i + 1])
+        return sorted(downs)
+
+    def _peers(asn):
+        ups = set(_upstreams(asn))
+        peers = set()
+        for path in path_prefix_map:
+            if asn not in path:
+                continue
+            i = path.index(asn)
+            if i > 0:
+                my_up = path[i - 1]
+                for p2 in path_prefix_map:
+                    for j in range(1, len(p2)):
+                        if p2[j - 1] == my_up and p2[j] != asn and p2[j] not in ups:
+                            peers.add(p2[j])
+        return sorted(peers)
+
+    if len(asns) == 1:
+        asn = asns[0]
+
+        # 本机 ASN 前插逻辑
+        effective_paths = {}
+        if asn == my_asn:
+            for path, pfxs in path_prefix_map.items():
+                new_path = (my_asn,) + path if my_asn not in path else path
+                effective_paths.setdefault(new_path, []).extend(pfxs)
+        else:
+            effective_paths = path_prefix_map
+
+        all_asns = set()
+        for path in effective_paths:
+            if asn in path:
+                all_asns.update(path)
+        if not all_asns:
+            return {"error": f"AS{asn} 未出现在当前路由表的任何 AS Path 中"}
+
+        nodes = [{"id": a, "name": name_map.get(a, f"AS{a}"),
+                  "type": "edge", "is_origin": a == asn,
+                  "is_tier1": False, "prefix_count": node_prefix_count.get(a, 0)}
+                 for a in all_asns]
+        edges = []
+        edge_seen = set()
+        edge_prefixes = {}
+        for path, pfxs in effective_paths.items():
+            if asn not in path:
+                continue
+            for i in range(len(path) - 1):
+                k = (path[i], path[i + 1])
+                if k not in edge_seen:
+                    edge_seen.add(k)
+                    edge_prefixes[k] = set()
+                edge_prefixes[k].update(pfxs)
+        for (s, t), pfxs in edge_prefixes.items():
+            edges.append({"source": s, "target": t,
+                          "prefixes": sorted(pfxs), "prefix_count": len(pfxs)})
+
+        ups = _upstreams(asn)
+        downs = _downstreams(asn)
+        return {
+            "query_type": "single", "origin": asn,
+            "origin_name": name_map.get(asn, f"AS{asn}"),
+            "nodes": nodes, "edges": edges,
+            "upstreams": [{"asn": u, "name": name_map.get(u, f"AS{u}")} for u in ups],
+            "downstreams": [{"asn": d, "name": name_map.get(d, f"AS{d}")} for d in downs],
+            "peers": [{"asn": p, "name": name_map.get(p, f"AS{p}")} for p in _peers(asn)],
+            "policies": [],
+            "total_paths": len([p for p in effective_paths if asn in p]),
+            "total_prefixes": node_prefix_count.get(asn, 0),
+        }
+
+    src, dst = asns[0], asns[1]
+    if src == dst:
+        return {"error": f"源 ASN 和目标 ASN 相同（AS{src}），请输入两个不同的 ASN"}
+
+    # 本机 ASN 前插
+    need_my = (src == my_asn or dst == my_asn)
+    effective_paths = {}
+    if need_my:
+        for path, pfxs in path_prefix_map.items():
+            new_path = (my_asn,) + path if my_asn not in path else path
+            effective_paths.setdefault(new_path, []).extend(pfxs)
+    else:
+        effective_paths = path_prefix_map
+
+    found_paths = []
+    for path, prefixes in effective_paths.items():
+        if src in path and dst in path:
+            si, di = path.index(src), path.index(dst)
+            sub = list(path[si:di + 1]) if si < di else list(path[di:si + 1])
+            for pfx in prefixes:
+                found_paths.append({
+                    "path": sub, "prefix": pfx, "full_path": list(path),
+                    "direction": "src→dst" if si < di else "dst→src",
+                })
+    path_asns = set()
+    for fp in found_paths:
+        path_asns.update(fp["path"])
+    nodes = [{"id": a, "name": name_map.get(a, f"AS{a}"),
+              "type": "edge", "is_origin": a in (src, dst),
+              "is_tier1": False} for a in path_asns]
+    edges = []
+    edge_seen = set()
+    for fp in found_paths:
+        p = fp["path"]
+        for i in range(len(p) - 1):
+            k = (p[i], p[i + 1])
+            if k not in edge_seen:
+                edge_seen.add(k)
+                edges.append({"source": p[i], "target": p[i + 1], "prefix": fp["prefix"]})
+    return {
+        "query_type": "pair", "src": src, "src_name": name_map.get(src, f"AS{src}"),
+        "dst": dst, "dst_name": name_map.get(dst, f"AS{dst}"),
+        "found": len(found_paths) > 0, "paths": found_paths,
+        "nodes": nodes, "edges": edges, "total_paths": len(found_paths),
+    }
+
+
+@app.get("/api/as-path/graph/<asn>")
+def api_as_path_graph(asn):
+    """单个 ASN 的 AS Path 图（含上游/下游/网络策略）。"""
+    asn = str(asn).strip().lstrip("ASas")
+    if not asn.isdigit():
+        return jsonify({"error": "非法的 ASN"}), 400
+    if config.DEMO_MODE:
+        if asn not in demo.ASN_NAMES:
+            return jsonify({"error": f"AS{asn} 不在演示拓扑中"}), 404
+        return ok(demo.as_path_graph(asn))
+    return ok({"error": "真实模式 AS Path 图暂未实现，请使用 /api/as-path/search"})
+
+
+# ---------- IX / IXP ----------
+@app.get("/api/ix")
+def api_ix_list():
+    """所有互联网交换点列表。"""
+    if config.DEMO_MODE:
+        return ok({"ix_list": demo.ix_list()})
+    return ok({"ix_list": [], "error": "真实模式暂不支持 IX 列表"})
+
+
+@app.get("/api/ix/<ix_id>")
+def api_ix_view(ix_id):
+    """单个 IX 详细信息，含成员列表。"""
+    if config.DEMO_MODE:
+        data = demo.ix_view(ix_id)
+        if data is None:
+            return jsonify({"error": f"找不到 IX: {ix_id}"}), 404
+        return ok(data)
+    return ok({"error": "真实模式暂不支持 IX 详情"})
+
+
+@app.get("/api/ix/asn/<asn>")
+def api_ix_for_asn(asn):
+    """查询某 ASN 参与的所有 IX。"""
+    asn = str(asn).strip().lstrip("ASas")
+    if config.DEMO_MODE:
+        return ok({"asn": asn, "ix_list": demo.ix_for_asn(asn)})
+    return ok({"asn": asn, "ix_list": []})
+
+
+# ---------- DNS ----------
+@app.get("/api/dns/lookup/<path:query>")
+def api_dns_lookup(query):
+    """DNS 查询：支持 IP 反向(PTR)和域名正向(A/AAAA)查找。
+    
+    返回格式统一为 {query, query_type, records: {TYPE: [values]}, description}
+    以匹配前端 renderDnsPage 的期望。
+    """
+    query = query.strip()
+    if config.DEMO_MODE:
+        raw = demo.dns_lookup(query)
+        # 转换为前端期望的统一格式
+        records = {}
+        if raw.get("found"):
+            if raw.get("name"):
+                records["PTR"] = raw["name"]
+            if raw.get("A"):
+                records["A"] = raw["A"]
+            if raw.get("AAAA"):
+                records["AAAA"] = raw["AAAA"]
+        return ok({
+            "query": raw.get("query", query),
+            "query_type": raw.get("type", "unknown"),
+            "records": records,
+            "description": raw.get("description", ""),
+        })
+    return ok({"query": query, "query_type": "unknown", "records": {}, "error": "真实模式暂不支持 DNS 查询"})
+
+
+@app.get("/api/dns/prefix/<path:prefix>")
+def api_dns_for_prefix(prefix):
+    """返回某前缀范围内的所有 DNS 记录。
+    
+    返回格式为 {prefix, records: {ip: {PTR, A, AAAA, description}}}
+    以匹配前端 loadDnsForPrefix 的期望。
+    """
+    prefix = prefix.strip()
+    if config.DEMO_MODE:
+        raw = demo.dns_for_prefix(prefix)
+        # 转换为前端期望的 {ip: record} 字典格式
+        records_dict = {}
+        for rec in raw.get("records", []):
+            ip = rec.get("address", "")
+            records_dict[ip] = {
+                "PTR": rec.get("PTR", []),
+                "A": rec.get("A", []),
+                "AAAA": rec.get("AAAA", []),
+                "description": rec.get("description", ""),
+            }
+        return ok({"prefix": prefix, "records": records_dict})
+    return ok({"prefix": prefix, "records": {}})
 
 
 @app.post("/api/cache/clear")

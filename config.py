@@ -16,6 +16,8 @@ SITE_NAME = os.environ.get("BGP_TOOL_SITE_NAME", "DN42 BGP Looking Glass")
 # 当前节点 ASN / 节点名（仅展示用）
 NODE_NAME = os.environ.get("BGP_TOOL_NODE_NAME", "node1")
 NODE_ASN = os.environ.get("BGP_TOOL_NODE_ASN", "4242420000")
+# 本机 ASN（用于 AS Path 分析中的本机前插逻辑）
+MY_ASN = os.environ.get("BGP_TOOL_MY_ASN", NODE_ASN)
 
 # ---------- BIRD 守护进程配置 ----------
 # birdc 二进制路径

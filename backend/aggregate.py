@@ -9,6 +9,7 @@ aggregate.py —— ASN 页 / 前缀页聚合视图
 演示模式：使用 demo.py 内置拓扑，保证数据自洽。
 """
 import ipaddress
+import re
 
 import config
 from backend import demo
@@ -88,15 +89,35 @@ def prefix_view(prefix: str) -> dict:
     routes = _real_routes()
     exact = [r for r in routes if r["prefix"] == prefix]
     origin = exact[0]["path"][-1] if exact and exact[0]["path"] else None
+    best_path = exact[0]["path"] if exact else []
     who = dn42.whois(prefix)
+
+    # 收集所有唯一 AS 路径
+    all_paths = []
+    seen_path_tuples = set()
+    for r in exact:
+        path_tuple = tuple(r["path"])
+        if path_tuple not in seen_path_tuples:
+            seen_path_tuples.add(path_tuple)
+            all_paths.append({
+                "path": r["path"],
+                "peer": r.get("peer", ""),
+                "via": r.get("via", ""),
+                "preferred": r.get("preferred", False),
+                "roa": r.get("roa", "unknown"),
+            })
+
     return {
         "prefix": prefix,
         "family": net.version,
         "num_addresses": net.num_addresses,
         "origin_as": origin,
         "as_name": None,
+        "origin_as_name": None,
         "roa": "unknown",
         "seen": bool(exact),
+        "as_path": best_path,
+        "all_paths": all_paths,
         "less_specifics": [],
         "whois": who.get("raw", ""),
     }
@@ -111,15 +132,33 @@ def _demo_prefix_view(net) -> dict:
     origin = best["path"][-1] if best else None
     roa = best["roa"] if best else "unknown"
     w = demo.PREFIX_WHOIS.get(prefix)
+
+    # 收集该前缀的所有唯一 AS 路径（可能有多条路由到达同一前缀）
+    all_paths = []
+    seen_path_tuples = set()
+    for r in exact:
+        path_tuple = tuple(r["path"])
+        if path_tuple not in seen_path_tuples:
+            seen_path_tuples.add(path_tuple)
+            all_paths.append({
+                "path": r["path"],
+                "peer": r.get("peer", ""),
+                "via": r.get("via", ""),
+                "preferred": r.get("preferred", False),
+                "roa": r.get("roa", "unknown"),
+            })
+
     return {
         "prefix": prefix,
         "family": net.version,
         "num_addresses": net.num_addresses,
         "origin_as": origin,
         "as_name": demo.ASN_NAMES.get(origin) if origin else None,
+        "origin_as_name": demo.ASN_NAMES.get(origin) if origin else None,
         "roa": roa,
         "seen": best is not None,
         "as_path": best["path"] if best else [],
+        "all_paths": all_paths,
         "less_specifics": _demo_less_specifics(net),
         "whois": demo.inetnum_whois(prefix),
         "registered_to": w["mnt-by"] if w else None,
@@ -147,7 +186,7 @@ def _demo_less_specifics(net) -> list:
 
 # ====================== 真实模式辅助 ======================
 def _real_routes() -> list:
-    """从 birdc 取路由并提取 AS path（best-effort）。"""
+    """从 birdc 取路由并提取完整 AS path（best-effort）。"""
     from backend import bird as bird_mod
     try:
         data = bird_mod.bird.routes(all_details=True)
@@ -155,12 +194,9 @@ def _real_routes() -> list:
         return []
     routes = []
     for item in (data.get("parsed") or {}).get("routes", []):
-        path = []
-        m = None
-        if item.get("as_info"):
-            m = __import__("re").search(r"AS(\d+)", item["as_info"])
-        if m:
-            path = [m.group(1)]
+        # 提取完整 AS Path（BIRD 输出 "AS4242422601 AS4242420666 i"）
+        raw = item.get("as_info") or ""
+        path = re.findall(r'AS(\d+)', raw) if raw else []
         routes.append({
             "prefix": item.get("prefix", ""),
             "path": path,
