@@ -1,0 +1,6 @@
+# BGP Tool for DN42 - Python dependencies
+# 适配 1C1G 低配 VPS，依赖尽量精简
+Flask==3.0.3
+gunicorn==22.0.0
+# 以下为可选依赖，未安装时功能自动降级
+# python-dotenv==1.0.1   # 从 .env 读取配置
