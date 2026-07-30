@@ -1,0 +1,75 @@
+# DN42 BGP Tool —— bird2 配置示例
+# 文档: https://wiki.dn42.us/howto/Bird2
+# 请将本文件放到 /etc/bird/bird.conf 并按需修改 ASN / IP / peer 段
+
+log "/var/log/bird/bird.log" all;
+log stderr all;
+
+# 路由器 ID（建议用你的 DN42 IPv4 任意一个地址）
+router id 172.20.0.1;
+
+# ---------- ROA 表 ----------
+roa4 table dn42_roa;
+roa6 table dn42_roa6;
+
+# 引入 ROA 数据（由 systemd timer / cron 定时下载后 include）
+include "/etc/bird/roa/dn42_roa_bird2_4.conf";
+include "/etc/bird/roa/dn42_roa_bird2_6.conf";
+
+# ---------- 内核协议：把路由写入内核路由表 ----------
+protocol kernel {
+    ipv4 {
+        export all;     # 把 BIRD 学到的路由注入内核
+        import none;
+    };
+}
+protocol kernel {
+    ipv6 {
+        export all;
+        import none;
+    };
+}
+
+protocol device { }
+protocol direct { disabled; }
+
+# ---------- 模板：DN42 BGP 会话 ----------
+template bgp dn42_peer {
+    local as 4242420001;          # 替换为你的 ASN
+    path metric 1;
+    ipv4 {
+        import filter {
+            # ROA 校验：非法/未知来源拒绝
+            if (roa_check(dn42_roa, net, bgp_path.last) != ROA_VALID) then
+                reject;
+            accept;
+        };
+        export filter { accept; };
+        import limit 9000 action block;   # 防止路由爆炸，保护 1G 内存
+    };
+    ipv6 {
+        import filter {
+            if (roa_check(dn42_roa6, net, bgp_path.last) != ROA_VALID) then
+                reject;
+            accept;
+        };
+        export filter { accept; };
+        import limit 9000 action block;
+    };
+}
+
+# ---------- 具体对等示例 ----------
+protocol bgp peer_hk01 from dn42_peer {
+    neighbor fd00:dead:beef::1 as 4242420002;
+    source address fd00:dead:beef::2;
+    ipv4 { import keep on; };
+}
+
+protocol bgp peer_jp02 from dn42_peer {
+    neighbor 172.20.0.2 as 4242420003;
+    source address 172.20.0.1;
+}
+
+# ---------- ROA 自动更新（可选，建议用 systemd timer）----------
+# 每次更新 ROA 文件后执行：
+#   birdc configure

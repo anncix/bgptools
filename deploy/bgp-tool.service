@@ -1,0 +1,39 @@
+[Unit]
+Description=DN42 BGP Looking Glass Tool
+After=network-online.target bird.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bgptool
+Group=bgptool
+# 工作目录指向项目根
+WorkingDirectory=/opt/bgp-tool
+# 单 worker + 线程，足够典型 LG 流量，且对 1C1G 极其友好
+ExecStart=/opt/bgp-tool/venv/bin/gunicorn -w 1 --threads 4 -b 127.0.0.1:8421 backend.app:app
+# 环境变量（按需修改）
+Environment="BGP_TOOL_SITE_NAME=DN42 BGP Looking Glass"
+Environment="BGP_TOOL_NODE_NAME=node1"
+Environment="BGP_TOOL_NODE_ASN=4242420001"
+Environment="BGP_TOOL_BIRD_SOCKET=/run/bird/bird.ctl"
+Environment="BGP_TOOL_BIRD_RESTRICT=true"
+# 公网暴露务必设置 API Key
+Environment="BGP_TOOL_API_KEY=change-me-to-a-long-random-string"
+Environment="BGP_TOOL_DEMO_MODE=false"
+Restart=on-failure
+RestartSec=3
+# 资源限制（1C1G 友好）
+MemoryMax=256M
+CPUQuota=80%
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/bgp-tool
+# 需要访问 bird 控制套接字，不使用 PrivateDevices
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
