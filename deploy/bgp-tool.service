@@ -21,6 +21,13 @@ Environment="BGP_TOOL_BIRD_RESTRICT=true"
 # 公网暴露务必设置 API Key
 Environment="BGP_TOOL_API_KEY=change-me-to-a-long-random-string"
 Environment="BGP_TOOL_DEMO_MODE=false"
+# 后台管理系统
+Environment="BGP_TOOL_ADMIN_ENABLED=true"
+Environment="BGP_TOOL_ADMIN_DB_PATH=/opt/bgp-tool/data/admin.db"
+Environment="BGP_TOOL_ADMIN_USERNAME=admin"
+Environment="BGP_TOOL_ADMIN_PASSWORD=changeme"
+Environment="BGP_TOOL_ADMIN_SECRET_KEY="
+Environment="BGP_TOOL_ADMIN_METRICS_INTERVAL=60"
 Restart=on-failure
 RestartSec=3
 # 资源限制（1C1G 友好）

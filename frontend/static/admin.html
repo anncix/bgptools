@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>后台管理 — bgp.tools DN42</title>
+  <link rel="stylesheet" href="/css/admin.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%232f81f7'/><text x='8' y='12' font-size='10' text-anchor='middle' fill='white' font-family='Arial'>A</text></svg>" />
+  <meta name="robots" content="noindex, nofollow" />
+</head>
+<body class="admin-body">
+
+  <!-- ===== 登录视图（未登录时显示） ===== -->
+  <div id="login-view" class="login-view" hidden>
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand-icon">◉</span>
+        <span class="brand-text">bgp.tools</span>
+        <span class="brand-tag">admin</span>
+      </div>
+      <h1 class="login-title">后台管理登录</h1>
+      <p class="login-sub">DN42 BGP Tool 管理控制台</p>
+      <form id="login-form" class="login-form" autocomplete="off">
+        <label class="field">
+          <span class="field-label">用户名</span>
+          <input id="login-username" type="text" name="username" required
+                 placeholder="admin" autocomplete="username" />
+        </label>
+        <label class="field">
+          <span class="field-label">密码</span>
+          <input id="login-password" type="password" name="password" required
+                 placeholder="••••••••" autocomplete="current-password" />
+        </label>
+        <div id="login-error" class="login-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit">
+          <span class="btn-text">登录</span>
+          <span class="spin spin-sm" hidden></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== 管理主视图（登录后显示） ===== -->
+  <div id="app-view" class="app-view" hidden>
+
+    <!-- 侧边栏 -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">◉</span>
+        <span class="brand-text">bgp.tools</span>
+        <span class="brand-tag">admin</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#dashboard"    class="nav-item" data-route="dashboard">
+          <span class="nav-ico">▤</span><span class="nav-label">仪表盘</span>
+        </a>
+        <a href="#peers"        class="nav-item" data-route="peers">
+          <span class="nav-ico">⇄</span><span class="nav-label">BGP 会话</span>
+        </a>
+        <a href="#roa"          class="nav-item" data-route="roa">
+          <span class="nav-ico">✓</span><span class="nav-label">ROA 管理</span>
+        </a>
+        <a href="#config"       class="nav-item" data-route="config">
+          <span class="nav-ico">⚙</span><span class="nav-label">配置管理</span>
+        </a>
+        <a href="#api-keys"     class="nav-item" data-route="api-keys">
+          <span class="nav-ico">🔑</span><span class="nav-label">API 密钥</span>
+        </a>
+        <a href="#audit-logs"   class="nav-item" data-route="audit-logs">
+          <span class="nav-ico">📋</span><span class="nav-label">审计日志</span>
+        </a>
+        <a href="#monitor"      class="nav-item" data-route="monitor">
+          <span class="nav-ico">📈</span><span class="nav-label">系统监控</span>
+        </a>
+        <a href="#wireguard"    class="nav-item" data-route="wireguard">
+          <span class="nav-ico">🛡</span><span class="nav-label">WireGuard</span>
+        </a>
+        <a href="#users"        class="nav-item" data-route="users">
+          <span class="nav-ico">👤</span><span class="nav-label">用户管理</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <span class="user-ico">●</span>
+          <span class="user-name" id="sidebar-username">admin</span>
+          <span class="user-role" id="sidebar-role">admin</span>
+        </div>
+        <button class="btn btn-ghost btn-sm btn-block" id="logout-btn">退出登录</button>
+      </div>
+    </aside>
+
+    <!-- 移动端侧边栏遮罩 -->
+    <div class="sidebar-overlay" id="sidebar-overlay" hidden></div>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+      <header class="topbar">
+        <button class="sidebar-toggle" id="sidebar-toggle" aria-label="菜单">
+          <span></span><span></span><span></span>
+        </button>
+        <h1 class="topbar-title" id="topbar-title">仪表盘</h1>
+        <div class="topbar-actions">
+          <span class="live-indicator" id="live-indicator">
+            <span class="live-dot"></span><span class="live-text">LIVE</span>
+          </span>
+          <button class="btn btn-ghost btn-sm" id="refresh-btn" title="刷新">
+            <span class="ico-refresh">↻</span> 刷新
+          </button>
+        </div>
+      </header>
+
+      <div class="page-container" id="admin-main">
+        <div class="loading"><span class="spin"></span> 加载中…</div>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- ===== Toast 通知容器 ===== -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ===== 模态弹窗容器 ===== -->
+  <div class="modal-overlay" id="modal-overlay" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-title">确认操作</h2>
+        <button class="modal-close" id="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <script src="/js/admin.js"></script>
+</body>
+</html>

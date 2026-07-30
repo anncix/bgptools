@@ -37,6 +37,24 @@ from backend import integration
 app = Flask(__name__, static_folder=None)
 app.config["JSON_SORT_KEYS"] = False
 
+# ---------- 后台管理系统初始化 ----------
+if getattr(config, "ADMIN_ENABLED", True):
+    import secrets as _secrets
+    # 设置会话密钥
+    _session_key = config.ADMIN_SECRET_KEY or _secrets.token_hex(32)
+    app.config["SECRET_KEY"] = _session_key
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["PERMANENT_SESSION_LIFETIME"] = 3600 * 8  # 8 小时
+
+    from backend import admin as admin_mod
+    # 初始化数据库
+    admin_mod.init_db()
+    # 注册 admin Blueprint
+    app.register_blueprint(admin_mod.ADMIN_BP)
+    # 启动指标采集线程
+    admin_mod.start_metrics_collector(config.ADMIN_METRICS_INTERVAL)
+
 FRONTEND_DIR = os.path.join(_BASE_DIR, "frontend", "static")
 
 
@@ -628,6 +646,13 @@ def api_cache_clear():
 @app.get("/")
 def index():
     return send_from_directory(FRONTEND_DIR, "index.html")
+
+
+@app.get("/admin")
+@app.get("/admin/")
+def admin_page():
+    """后台管理面板入口页面。"""
+    return send_from_directory(FRONTEND_DIR, "admin.html")
 
 
 @app.get("/<path:filename>")

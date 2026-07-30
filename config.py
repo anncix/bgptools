@@ -57,6 +57,22 @@ WHOIS_BIN = os.environ.get("BGP_TOOL_WHOIS_BIN", "whois")
 WHOIS_SERVER = os.environ.get("BGP_TOOL_WHOIS_SERVER", "whois.dn42.us")
 WHOIS_TIMEOUT = float(os.environ.get("BGP_TOOL_WHOIS_TIMEOUT", "10"))
 
+# ---------- 后台管理系统配置 ----------
+# 管理员会话密钥（必须为强随机值，否则拒绝启动后台）
+ADMIN_SECRET_KEY = os.environ.get("BGP_TOOL_ADMIN_SECRET_KEY", "")
+# SQLite 数据库路径
+ADMIN_DB_PATH = os.environ.get("BGP_TOOL_ADMIN_DB_PATH", "/opt/bgp-tool/data/admin.db")
+# 默认管理员用户名（首次初始化时创建）
+ADMIN_USERNAME = os.environ.get("BGP_TOOL_ADMIN_USERNAME", "admin")
+# 默认管理员密码（首次初始化时创建，登录后请立即修改）
+ADMIN_PASSWORD = os.environ.get("BGP_TOOL_ADMIN_PASSWORD", "changeme")
+# 指标采集间隔（秒）
+ADMIN_METRICS_INTERVAL = int(os.environ.get("BGP_TOOL_ADMIN_METRICS_INTERVAL", "60"))
+# 后台管理是否启用
+ADMIN_ENABLED = os.environ.get("BGP_TOOL_ADMIN_ENABLED", "true").lower() in (
+    "1", "true", "yes", "on",
+)
+
 # ---------- 安全配置 ----------
 # 单 IP 每分钟最大请求数（0 表示不限制）
 RATE_LIMIT = int(os.environ.get("BGP_TOOL_RATE_LIMIT", "60"))
