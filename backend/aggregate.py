@@ -196,7 +196,13 @@ def _real_routes() -> list:
     for item in (data.get("parsed") or {}).get("routes", []):
         # 提取完整 AS Path（BIRD 输出 "AS4242422601 AS4242420666 i"）
         raw = item.get("as_info") or ""
-        path = re.findall(r'AS(\d+)', raw) if raw else []
+        # 优先使用 parse_routes 已解析的 as_path 列表
+        if item.get("as_path"):
+            path = item["as_path"]
+        else:
+            path = re.findall(r'AS(\d+)', raw) if raw else []
+        # ROA 状态：优先使用 parse_routes 已解析的 roa 字段
+        roa = item.get("roa", "unknown")
         routes.append({
             "prefix": item.get("prefix", ""),
             "path": path,
@@ -204,7 +210,7 @@ def _real_routes() -> list:
             "via": (item.get("nexthops") or [""])[0].replace("via ", ""),
             "metric": item.get("metric", ""),
             "preferred": item.get("preferred", False),
-            "roa": "unknown",
+            "roa": roa,
         })
     return routes
 

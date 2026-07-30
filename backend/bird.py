@@ -129,6 +129,9 @@ class BirdClient:
 
     # ---------- 命令白名单校验 ----------
     def _is_allowed(self, command: str) -> bool:
+        # 拒绝包含分号、换行、管道等元字符的命令（防止命令注入）
+        if re.search(r'[;\n\r|`$&><]', command):
+            return False
         low = command.lower().strip()
         # 绝对禁止的写/控制命令
         forbidden = [
@@ -380,6 +383,8 @@ def parse_routes(raw: str, count_only: bool = False) -> dict:
                 "preferred": bool(star),
                 "metric": metric,
                 "as_info": asinfo.strip() if asinfo else "",
+                "as_path": [],
+                "roa": "unknown",
                 "nexthops": [],
             }
             # 主行可能内联下一跳
@@ -390,8 +395,26 @@ def parse_routes(raw: str, count_only: bool = False) -> dict:
                 stripped = line.strip()
                 if stripped.startswith("via ") or stripped.startswith("dev "):
                     current["nexthops"].append(stripped)
-                elif "BGP." in stripped or "AS path" in stripped:
+                # 提取 ROA 校验结果（优先检查，因为 BGP.roa 行也含 "BGP."）
+                # 格式: "BGP.roa: VALID" 或 "ROA: valid"
+                elif "roa" in stripped.lower():
+                    current["as_path_line"] = current.get("as_path_line", "")
+                    roa_match = re.search(r'roa[:\s]+(\w+)', stripped, re.IGNORECASE)
+                    if roa_match:
+                        roa_val = roa_match.group(1).lower()
+                        if roa_val in ("valid", "invalid", "unknown"):
+                            current["roa"] = roa_val
+                # 从 BGP.as_path 行提取 AS 号
+                elif "as_path" in stripped.lower() or ("BGP." in stripped and "path" in stripped.lower()):
                     current["as_path_line"] = stripped
+                    # 格式: "BGP.as_path: 4242422601 4242420666"
+                    path_match = re.search(r'(?:BGP\.as_path|AS path):\s*(.+)', stripped, re.IGNORECASE)
+                    if path_match:
+                        asns = re.findall(r'\d+', path_match.group(1))
+                        if asns and not current.get("as_info"):
+                            current["as_info"] = " ".join(f"AS{a}" for a in asns) + " i"
+                        # 同时存储解析后的 AS Path 列表
+                        current["as_path"] = asns
     return {"routes": routes, "count": len(routes)}
 
 

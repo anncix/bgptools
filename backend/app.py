@@ -32,6 +32,7 @@ from backend import dn42
 from backend import demo
 from backend import search as search_mod
 from backend import aggregate
+from backend import integration
 
 app = Flask(__name__, static_folder=None)
 app.config["JSON_SORT_KEYS"] = False
@@ -92,16 +93,22 @@ def _after(resp):
 
 # ====================== 工具函数 ======================
 def bird_or_demo(fn_name: str, demo_fn, *args, **kwargs):
-    """统一处理：birdc 可用则调用真实方法，否则尝试 demo 模式，否则报错。"""
+    """统一处理：birdc 可用则调用真实方法，否则尝试 demo 模式，否则报错。
+
+    使用 integration.should_use_demo() 实现自动降级：
+    当 DEMO_MODE 关闭但 birdc 不可达时，自动回退到演示模式。
+    """
     try:
         method = getattr(bird_mod.bird, fn_name)
         return method(*args, **kwargs)
     except bird_mod.BirdError as e:
-        if config.DEMO_MODE:
+        mode = integration.should_use_demo()
+        if mode["use_demo"]:
             return demo_fn(*args, **kwargs)
         return {"error": str(e)}
     except FileNotFoundError as e:
-        if config.DEMO_MODE:
+        mode = integration.should_use_demo()
+        if mode["use_demo"]:
             return demo_fn(*args, **kwargs)
         return {"error": f"缺少依赖：{e}"}
 
@@ -121,6 +128,37 @@ def health():
         "site": config.SITE_NAME,
         "node": config.NODE_NAME,
     })
+
+
+# ---------- 接入集成 API ----------
+@app.get("/api/integration/status")
+def api_integration_status():
+    """节点接入状态总览：模式、bird2健康、ROA、配置概要。"""
+    return ok(integration.node_summary())
+
+
+@app.get("/api/integration/readiness")
+def api_integration_readiness():
+    """部署前就绪度自检：检查所有 DN42 接入组件。"""
+    return ok(integration.readiness_check())
+
+
+@app.get("/api/integration/roa")
+def api_integration_roa():
+    """ROA 表状态：文件存在性、条目数、最后更新时间。"""
+    return ok(integration.roa_status())
+
+
+@app.get("/api/integration/wireguard")
+def api_integration_wireguard():
+    """WireGuard 隧道状态。"""
+    return ok(integration.wireguard_status())
+
+
+@app.get("/api/integration/bird-health")
+def api_integration_bird_health():
+    """bird2 连接健康检查。"""
+    return ok(integration.bird_health())
 
 
 @app.get("/api/dn42/info")
@@ -226,7 +264,9 @@ def api_roa(prefix):
         return ok(data)
     except bird_mod.BirdError as e:
         if config.DEMO_MODE:
-            return ok(bird_mod.demo_routes(prefix))
+            hits = demo.route_lookup_raw(prefix)
+            raw = demo.routes_raw(hits) if hits else "% Network not in table"
+            return ok({"raw": raw, "parsed": bird_mod.parse_routes(raw), "prefix": prefix})
         return ok({"error": str(e)})
 
 
