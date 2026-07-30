@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>bgp.tools — DN42</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%23b62b2b'/><text x='8' y='12' font-size='10' text-anchor='middle' fill='white' font-family='Arial'>B</text></svg>" />
+</head>
+<body>
+  <!-- ===== 顶栏（bgp.tools 风格：黑底 + 红按钮） ===== -->
+  <nav class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-icon">◉</span>
+      <span class="brand-text">bgp.tools</span>
+      <span class="brand-dn42">dn42</span>
+    </a>
+    <div class="top-search" id="top-search" hidden>
+      <input id="top-q" class="top-q" type="search" placeholder="Start here..." autocomplete="off" spellcheck="false" />
+      <button id="top-go" class="top-go" title="Search" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 8h12M9 3l5 5-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <span class="top-right">
+      <span id="demo-flag" class="demo-flag" hidden>DEMO</span>
+      <a class="login-btn" href="/lg">Looking&nbsp;Glass</a>
+    </span>
+  </nav>
+
+  <!-- ===== 主体（JS 渲染） ===== -->
+  <main id="main" class="main">
+    <div class="loading"><span class="spin"></span> Loading…</div>
+  </main>
+
+  <!-- ===== 底部（bgp.tools 风格 footer 链接） ===== -->
+  <footer class="footer">
+    <ul class="footer-links">
+      <li><a href="/api" data-no-router>Scripting/API</a></li>
+      <li><a href="/lg">Looking Glass</a></li>
+      <li><a href="https://dn42.dev" target="_blank" rel="noopener">dn42.dev</a></li>
+      <li><a href="https://wiki.dn42.us" target="_blank" rel="noopener">DN42 Wiki</a></li>
+      <li><a href="https://github.com/anncix/bgptools" target="_blank" rel="noopener">Source Code</a></li>
+      <li><a href="https://github.com/anncix/bgptools/issues" target="_blank" rel="noopener">Issue Tracker</a></li>
+    </ul>
+    <div class="footer-copy">
+      BGP.Tools style UI for <strong>DN42</strong> · 数据来源：本节点 bird2 + DN42 registry · 适配 1C1G 低配 VPS
+    </div>
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
