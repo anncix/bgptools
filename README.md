@@ -1,6 +1,9 @@
 # bgp.tools for DN42 — 项目分析报告
 
 > 一个模仿 [bgp.tools](https://bgp.tools) 界面、面向 DN42 实验网络的轻量级 BGP Looking Glass 工具
+> 包含由 ECharts 强力驱动的 AS Path 交互式力导向图可视化。
+
+![AS Path Visualization](./as_path_screenshot.png)
 
 | 指标 | 数值 |
 |------|------|
