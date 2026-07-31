@@ -219,7 +219,7 @@ class BirdClient:
     def route_lookup(self, target: str) -> dict:
         if not self.valid_ip_or_prefix(target):
             raise BirdError(f"非法的 IP 或前缀: {target}")
-        cmd = f"show route for {target}"
+        cmd = f"show route for {target} all"
         raw = self._cached(cmd, config.CACHE_TTL_LOOKUP,
                            lambda: self._run(cmd))
         return {"raw": raw, "parsed": parse_routes(raw), "target": target}
@@ -227,7 +227,7 @@ class BirdClient:
     def roa_check(self, prefix: str) -> dict:
         if not self.valid_ip_or_prefix(prefix):
             raise BirdError(f"非法的前缀: {prefix}")
-        cmd = f"show route for {prefix}"
+        cmd = f"show route for {prefix} all"
         raw = self._cached(cmd, config.CACHE_TTL_LOOKUP,
                            lambda: self._run(cmd))
         return {"raw": raw, "parsed": parse_routes(raw), "prefix": prefix}

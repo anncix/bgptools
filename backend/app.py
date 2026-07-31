@@ -688,6 +688,15 @@ if __name__ == "__main__":
     print(f"[*] 监听: http://{config.HOST}:{config.PORT}")
     print(f"[*] BIRD socket: {config.BIRD_SOCKET} (restrict={config.BIRD_RESTRICT})")
     print(f"[*] Demo mode: {config.DEMO_MODE} | Cache: {config.CACHE_ENABLED}")
+
+    if config.HOST == "0.0.0.0" and not config.API_KEY:
+        print("="*60)
+        print("[!] 严重警告：您正在将应用暴露在公网 (0.0.0.0) 且未设置 API_KEY！")
+        print("[!] 这允许任何人通过您的节点执行 whois 和 traceroute 查询。")
+        print("[!] 出于安全考虑，程序已拒绝启动。请在 .env 中配置 BGP_TOOL_API_KEY。")
+        print("="*60)
+        sys.exit(1)
+
     app.run(
         host=config.HOST,
         port=config.PORT,

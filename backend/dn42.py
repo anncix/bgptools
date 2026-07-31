@@ -13,8 +13,12 @@ import re
 import shlex
 import subprocess
 import ipaddress
+import threading
 
 import config
+
+# 全局 Traceroute 锁，限制并发数为 1
+_traceroute_lock = threading.Lock()
 
 
 # ====================== DN42 网络常量 ======================
@@ -134,7 +138,7 @@ def whois(query: str) -> dict:
 
 # ====================== traceroute ======================
 def traceroute(host: str) -> dict:
-    """从本节点执行 traceroute。"""
+    """从本节点执行 traceroute。限制并发数为 1。"""
     if not config.TRACEROUTE_BIN:
         return {"error": "traceroute 未配置", "raw": ""}
     host = host.strip()
@@ -143,28 +147,34 @@ def traceroute(host: str) -> dict:
     if not re.match(r"^[A-Za-z0-9.\-:]{1,253}$", host):
         return {"error": "主机名非法", "raw": ""}
 
-    argv = [
-        config.TRACEROUTE_BIN,
-        "-w", "2",            # 每跳等待秒数
-        "-q", "1",            # 每跳探测次数（降低负载）
-        "-m", str(config.TRACEROUTE_MAX_HOPS),
-        host,
-    ]
+    if not _traceroute_lock.acquire(blocking=False):
+        return {"error": "当前有其他 traceroute 正在运行，请稍后再试", "raw": ""}
+    
     try:
-        proc = subprocess.run(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=config.TRACEROUTE_TIMEOUT,
-            check=False,
-        )
-    except FileNotFoundError:
-        return {"error": f"找不到 traceroute 二进制 ({config.TRACEROUTE_BIN})", "raw": ""}
-    except subprocess.TimeoutExpired:
-        return {"error": "traceroute 超时", "raw": ""}
+        argv = [
+            config.TRACEROUTE_BIN,
+            "-w", "2",            # 每跳等待秒数
+            "-q", "1",            # 每跳探测次数（降低负载）
+            "-m", str(config.TRACEROUTE_MAX_HOPS),
+            host,
+        ]
+        try:
+            proc = subprocess.run(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=config.TRACEROUTE_TIMEOUT,
+                check=False,
+            )
+        except FileNotFoundError:
+            return {"error": f"找不到 traceroute 二进制 ({config.TRACEROUTE_BIN})", "raw": ""}
+        except subprocess.TimeoutExpired:
+            return {"error": "traceroute 超时", "raw": ""}
 
-    out = proc.stdout.decode("utf-8", errors="replace")
-    return {"raw": out.strip(), "hops": parse_traceroute(out), "target": host}
+        out = proc.stdout.decode("utf-8", errors="replace")
+        return {"raw": out.strip(), "hops": parse_traceroute(out), "target": host}
+    finally:
+        _traceroute_lock.release()
 
 
 def parse_traceroute(text: str) -> list:
