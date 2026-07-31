@@ -816,13 +816,19 @@ curl -s http://127.0.0.1:8421/api/route/lookup/172.20.0.53</pre>`;
     const el = $("#aspath-chart");
     if (!el) return;
 
-    // 空状态处理
     if (!data.nodes || data.nodes.length === 0) {
       el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:200px;color:#999;font-size:14px">无拓扑数据可展示</div>`;
       return;
     }
 
-    // 判断起源/端点节点（single 取 is_origin/origin；pair 取两端点）
+    el.style.height = "500px";
+    // Ensure echarts is loaded
+    if (typeof echarts === "undefined") {
+      el.innerHTML = `<div class="error-box">ECharts library failed to load.</div>`;
+      return;
+    }
+
+    const chart = echarts.init(el);
     const pairIds = data.query_type === "pair" ? new Set([data.src, data.dst].filter(Boolean)) : null;
     const isOriginFn = (n) => {
       if (!n) return false;
@@ -831,143 +837,115 @@ curl -s http://127.0.0.1:8421/api/route/lookup/172.20.0.53</pre>`;
       return !!n.is_origin;
     };
 
-    // 左→右分列：Origins → Transit → Tier1
-    const colOrigin = [];
-    const colTransit = [];
-    const colTier1 = [];
-    data.nodes.forEach((n) => {
-      if (isOriginFn(n)) {
-        colOrigin.push(n);
-      } else if (n.type === "tier1" || n.is_tier1) {
-        colTier1.push(n);
-      } else {
-        colTransit.push(n);
-      }
-    });
-
-    // 仅保留非空列
-    const columns = [];
-    if (colOrigin.length) columns.push({ key: "origin", label: "Origins", nodes: colOrigin });
-    if (colTransit.length) columns.push({ key: "transit", label: "Transit", nodes: colTransit });
-    if (colTier1.length) columns.push({ key: "tier1", label: "Tier 1", nodes: colTier1 });
-    const numCols = Math.max(columns.length, 1);
-
-    // 节点尺寸与间距（圆角矩形）
-    const NODE_W = 100, NODE_H = 36, NODE_R = 4;
-    const NODE_GAP_Y = 16, COL_GAP = 24, PAD_X = 16;
-    const TITLE_H = 36, COLLABEL_H = 24;
-    const PAD_TOP = TITLE_H + COLLABEL_H + 10;
-    const PAD_BOTTOM = 16;
-
-    // 自适应容器宽度
-    const W = el.clientWidth || 600;
-    const colW = (W - PAD_X * 2 - COL_GAP * (numCols - 1)) / numCols;
-    const nodeXInCol = (ci) => PAD_X + ci * (colW + COL_GAP) + (colW - NODE_W) / 2;
-
-    // 总内容高度（取最大列节点数）
-    let maxNodesInCol = 1;
-    columns.forEach((c) => { maxNodesInCol = Math.max(maxNodesInCol, c.nodes.length); });
-    const contentH = maxNodesInCol * NODE_H + (maxNodesInCol - 1) * NODE_GAP_Y;
-    const H = Math.max(el.clientHeight || 320, PAD_TOP + contentH + PAD_BOTTOM);
-
-    // 计算每个节点位置（列内垂直居中）
-    const contentAreaH = H - PAD_TOP - PAD_BOTTOM;
-    const positions = {};
-    columns.forEach((c, ci) => {
-      const count = c.nodes.length;
-      const colContentH = count * NODE_H + Math.max(0, count - 1) * NODE_GAP_Y;
-      const startY = PAD_TOP + Math.max(0, (contentAreaH - colContentH) / 2);
-      c.nodes.forEach((n, i) => {
-        positions[n.id] = { x: nodeXInCol(ci), y: startY + i * (NODE_H + NODE_GAP_Y) };
-      });
-    });
-
-    const nodeMap = new Map(data.nodes.map((n) => [n.id, n]));
-
-    // 构建 SVG
-    let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="background:#fafafa;border-radius:4px;display:block">`;
-
-    // 箭头标记定义（黑色普通 + 蓝色起源相关）
-    svg += `<defs>
-      <marker id="aspath-arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
-        <path d="M0,0 L0,10 L10,5 z" fill="#666"/>
-      </marker>
-      <marker id="aspath-arrow-origin" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
-        <path d="M0,0 L0,10 L10,5 z" fill="#1890ff"/>
-      </marker>
-    </defs>`;
-
-    // 标题：Realtime Data (查询内容)
-    let queryText = "";
-    if (data.query != null && data.query !== "") queryText = String(data.query);
-    else if (data.query_type === "pair" && data.src && data.dst) queryText = `${data.src} ↔ ${data.dst}`;
-    else if (data.query_type === "single" && data.origin != null) queryText = String(data.origin);
-    svg += `<text x="${PAD_X}" y="24" font-size="14" font-weight="700" fill="#222" font-family="sans-serif">Realtime Data${queryText ? ` (${esc(queryText)})` : ""}</text>`;
-
-    // 列背景 + 列标签
-    const colBg = { origin: "rgba(82,196,26,0.08)", transit: "rgba(250,140,22,0.06)", tier1: "rgba(24,144,255,0.08)" };
-    const colLabelColor = { origin: "#389e0d", transit: "#d46b08", tier1: "#096dd9" };
-    const bgY = TITLE_H + 6;
-    const bgH = H - bgY - PAD_BOTTOM;
-    const colLabelY = TITLE_H + 20;
-    columns.forEach((c, ci) => {
-      const x = PAD_X + ci * (colW + COL_GAP);
-      svg += `<rect x="${x}" y="${bgY}" width="${colW}" height="${bgH}" fill="${colBg[c.key]}" rx="6" ry="6" />`;
-      svg += `<text x="${x + colW / 2}" y="${colLabelY}" text-anchor="middle" font-size="12" font-weight="700" fill="${colLabelColor[c.key]}" font-family="sans-serif">${esc(c.label)}</text>`;
-    });
-
-    // 绘制边：黑色直线 + 箭头，从源矩形边缘到目标矩形边缘
-    const edgeSeen = new Set();
-    data.edges.forEach((e) => {
-      const s = positions[e.source];
-      const t = positions[e.target];
-      if (!s || !t) return;
-      const key = `${e.source}-${e.target}`;
-      if (edgeSeen.has(key)) return;
-      edgeSeen.add(key);
-
-      const scx = s.x + NODE_W / 2, scy = s.y + NODE_H / 2;
-      const tcx = t.x + NODE_W / 2, tcy = t.y + NODE_H / 2;
-      let x1, y1, x2, y2;
-      if (Math.abs(tcx - scx) > Math.abs(tcy - scy) * 0.6) {
-        // 水平为主：源右边缘 → 目标左边缘（反之亦然）
-        if (scx < tcx) { x1 = s.x + NODE_W; y1 = scy; x2 = t.x; y2 = tcy; }
-        else { x1 = s.x; y1 = scy; x2 = t.x + NODE_W; y2 = tcy; }
-      } else {
-        // 垂直为主（同列）：源下边缘 → 目标上边缘（反之亦然）
-        if (scy < tcy) { x1 = scx; y1 = s.y + NODE_H; x2 = tcx; y2 = t.y; }
-        else { x1 = scx; y1 = s.y; x2 = tcx; y2 = t.y + NODE_H; }
-      }
-
-      const involvesOrigin = isOriginFn(nodeMap.get(e.source)) || isOriginFn(nodeMap.get(e.target));
-      const strokeColor = involvesOrigin ? "#1890ff" : "#666";
-      const strokeWidth = involvesOrigin ? 2 : 1.5;
-      const marker = involvesOrigin ? "url(#aspath-arrow-origin)" : "url(#aspath-arrow)";
-      svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${strokeColor}" stroke-width="${strokeWidth}" marker-end="${marker}" />`;
-    });
-
-    // 绘制节点：圆角矩形，两行文字（AS号 粗体 / AS名称）
-    data.nodes.forEach((n) => {
-      const p = positions[n.id];
-      if (!p) return;
+    const nodes = data.nodes.map((n) => {
       const isOrigin = isOriginFn(n);
       const isTier1 = n.type === "tier1" || n.is_tier1;
-      let strokeColor, strokeWidth;
-      if (isOrigin) { strokeColor = "#1890ff"; strokeWidth = 3; }
-      else if (isTier1) { strokeColor = "#1890ff"; strokeWidth = 2.5; }
-      else { strokeColor = "#d9d9d9"; strokeWidth = 1; }
 
-      svg += `<rect x="${p.x}" y="${p.y}" width="${NODE_W}" height="${NODE_H}" rx="${NODE_R}" ry="${NODE_R}" fill="#ffffff" stroke="${strokeColor}" stroke-width="${strokeWidth}" />`;
-      const cx = p.x + NODE_W / 2;
-      svg += `<text x="${cx}" y="${p.y + 15}" text-anchor="middle" font-size="12" font-weight="700" fill="#222" font-family="monospace">AS${esc(n.id)}</text>`;
-      const maxChars = Math.floor((NODE_W - 10) / 6);
-      let nm = String(n.name || "");
-      if (nm.length > maxChars) nm = nm.slice(0, Math.max(1, maxChars - 1)) + "…";
-      svg += `<text x="${cx}" y="${p.y + 29}" text-anchor="middle" font-size="10" fill="#666" font-family="sans-serif">${esc(nm)}</text>`;
+      let category = 1; // Transit
+      let symbolSize = 40;
+      let color = "#5470c6";
+
+      if (isOrigin) {
+        category = 0; // Origin
+        symbolSize = 60;
+        color = "#ff4d4f"; // bgp.tools uses red-ish for targets
+      } else if (isTier1) {
+        category = 2; // Tier1
+        symbolSize = 50;
+        color = "#73d13d";
+      }
+
+      return {
+        id: n.id,
+        name: "AS" + n.id,
+        category: category,
+        symbolSize: symbolSize,
+        itemStyle: {
+          color: color,
+          borderColor: "#fff",
+          borderWidth: 2,
+          shadowBlur: 10,
+          shadowColor: "rgba(0,0,0,0.2)",
+        },
+        label: {
+          show: true,
+          position: "inside",
+          formatter: "{b}",
+          color: "#fff",
+          fontSize: isOrigin ? 12 : 10,
+          fontWeight: "bold",
+        },
+        tooltip: {
+          formatter: `<b>AS${n.id}</b><br/>${n.name || "Unknown"}<br/>Type: ${isOrigin ? "Origin/Target" : (isTier1 ? "Tier 1" : "Transit")}`,
+        },
+      };
     });
 
-    svg += `</svg>`;
-    el.innerHTML = svg;
+    const links = data.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      lineStyle: {
+        color: "#999",
+        width: 1.5,
+        curveness: 0.15,
+      },
+    }));
+
+    const option = {
+      tooltip: {
+        trigger: "item",
+      },
+      legend: {
+        data: ["Origin/Target", "Transit", "Tier 1"],
+        top: 10,
+        left: "center",
+        textStyle: { color: "#333" },
+      },
+      animationDurationUpdate: 1500,
+      animationEasingUpdate: "quinticInOut",
+      series: [
+        {
+          name: "AS Path Topology",
+          type: "graph",
+          layout: "force",
+          force: {
+            repulsion: 400,
+            edgeLength: [50, 120],
+            gravity: 0.1,
+            layoutAnimation: true,
+          },
+          roam: true, // Allow pan and zoom
+          label: {
+            position: "right",
+            formatter: "{b}",
+          },
+          edgeSymbol: ["none", "arrow"],
+          edgeSymbolSize: [4, 8],
+          categories: [
+            { name: "Origin/Target" },
+            { name: "Transit" },
+            { name: "Tier 1" },
+          ],
+          data: nodes,
+          links: links,
+          lineStyle: {
+            color: "source",
+            curveness: 0.2,
+          },
+          emphasis: {
+            focus: "adjacency",
+            lineStyle: {
+              width: 4,
+            },
+          },
+        },
+      ],
+    };
+
+    chart.setOption(option);
+    window.addEventListener("resize", () => {
+      chart.resize();
+    });
   }
 
   // ============================================================
